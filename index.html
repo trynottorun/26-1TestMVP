@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>인사해주기</title>
+
+  <!-- ===== CSS 영역: 모바일 목업 + 블랙/화이트 모던 스타일 ===== -->
+  <style>
+    :root {
+      --phone-width: 360px;
+      --phone-height: 720px;
+      --bg-black: #0b0b0b;
+      --surface-black: #111111;
+      --line-gray: #2b2b2b;
+      --text-white: #f4f4f4;
+      --text-muted: #b5b5b5;
+      --white: #ffffff;
+      --point-color: #7c9dff;
+      --point-color-hover: #96afff;
+      --point-color-pressed: #6b8fff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: #1a1a1a;
+      color: var(--text-white);
+    }
+
+    .phone-mockup {
+      width: calc(var(--phone-width) + 24px);
+      height: calc(var(--phone-height) + 24px);
+      border-radius: 30px;
+      padding: 12px;
+      background: #000000;
+      box-shadow: 0 24px 50px rgba(0, 0, 0, 0.45);
+    }
+
+    .phone-screen {
+      position: relative;
+      width: var(--phone-width);
+      height: var(--phone-height);
+      border-radius: 22px;
+      border: 1px solid #1f1f1f;
+      background: linear-gradient(180deg, #141414 0%, #0d0d0d 100%);
+      overflow: hidden;
+      padding: 56px 18px 18px;
+    }
+
+    .notch {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 120px;
+      height: 22px;
+      border-radius: 0 0 12px 12px;
+      background: #000000;
+      border: 1px solid #1a1a1a;
+      border-top: none;
+    }
+
+    .container {
+      width: 100%;
+      height: 100%;
+      border: 1px solid var(--line-gray);
+      border-radius: 16px;
+      padding: 20px 14px;
+      background: rgba(255, 255, 255, 0.02);
+      backdrop-filter: blur(4px);
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: 25px;
+      color: var(--white);
+      letter-spacing: -0.2px;
+    }
+
+    .guide {
+      margin: 0 0 10px;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    .input-row {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      height: 44px;
+      padding: 0 12px;
+      border-radius: 12px;
+      border: 1px solid #3a3a3a;
+      background: #090909;
+      color: var(--text-white);
+      font-size: 15px;
+      outline: none;
+    }
+
+    input[type="text"]:focus {
+      border-color: #ffffff;
+    }
+
+    button {
+      width: 100%;
+      height: 44px;
+      border: 1px solid #94adff;
+      border-radius: 12px;
+      background: linear-gradient(180deg, var(--point-color) 0%, #5f84ff 100%);
+      color: var(--white);
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 6px 16px rgba(124, 157, 255, 0.35);
+      transition: background-color 0.18s ease, transform 0.08s ease, box-shadow 0.12s ease, filter 0.12s ease;
+    }
+
+    button:hover {
+      background: linear-gradient(180deg, var(--point-color-hover) 0%, #6f91ff 100%);
+      filter: brightness(1.04);
+    }
+
+    button:active {
+      transform: translateY(1px) scale(0.995);
+      box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(124, 157, 255, 0.25);
+      background: linear-gradient(180deg, var(--point-color-pressed) 0%, #587df7 100%);
+      filter: brightness(0.96);
+    }
+
+    .popup-overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.6);
+      padding: 20px;
+    }
+
+    .popup-overlay.show {
+      display: flex;
+    }
+
+    .popup {
+      width: min(320px, 90vw);
+      border-radius: 14px;
+      border: 1px solid #3c3c3c;
+      background: #101010;
+      color: var(--white);
+      padding: 18px 16px;
+      text-align: center;
+      box-shadow: 0 12px 35px rgba(0, 0, 0, 0.45);
+    }
+
+    .popup-title {
+      margin: 0 0 8px;
+      font-size: 15px;
+      color: #d4d4d4;
+    }
+
+    .popup-message {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <!-- ===== HTML 영역: 안드로이드 360x720 목업 화면 ===== -->
+  <div class="phone-mockup">
+    <div class="phone-screen">
+      <div class="notch"></div>
+      <div class="container">
+        <h1>인사해주기 제목</h1>
+        <p class="guide">이름을 입력해주세요</p>
+
+        <div class="input-row">
+          <input id="nameInput" type="text" placeholder="이름 입력" />
+          <button id="printButton" type="button">출력</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== HTML 영역: 입력 완료 팝업 ===== -->
+  <div id="popupOverlay" class="popup-overlay">
+    <div class="popup">
+      <p class="popup-title">입력 완료</p>
+      <p id="popupMessage" class="popup-message"></p>
+    </div>
+  </div>
+
+  <!-- ===== JavaScript 영역: 출력/팝업/외부 클릭 닫기 동작 ===== -->
+  <script>
+    const nameInput = document.getElementById("nameInput");
+    const printButton = document.getElementById("printButton");
+    const popupOverlay = document.getElementById("popupOverlay");
+    const popupMessage = document.getElementById("popupMessage");
+
+    function closePopup() {
+      popupOverlay.classList.remove("show");
+    }
+
+    printButton.addEventListener("click", function () {
+      const name = nameInput.value.trim();
+
+      if (!name) {
+        popupMessage.textContent = "이름을 입력해주세요.";
+        popupOverlay.classList.add("show");
+        return;
+      }
+
+      const helloText = `${name}, hello.`;
+      popupMessage.textContent = helloText;
+      popupOverlay.classList.add("show");
+    });
+
+    popupOverlay.addEventListener("click", function (event) {
+      if (event.target === popupOverlay) {
+        closePopup();
+      }
+    });
+  </script>
+</body>
+</html>
