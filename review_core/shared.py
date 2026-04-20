@@ -25,6 +25,26 @@ ANALYSIS_STOPWORDS = {
     "있음", "없음", "ㅋㅋ", "ㅎㅎ", "ㅠㅠ", "ㅜㅜ",
 }
 
+KEYWORD_SYNONYM_MAP = {
+    "강종": "튕김",
+    "꺼짐": "튕김",
+    "팅김": "튕김",
+    "튕겨요": "튕김",
+    "버벅임": "렉",
+    "끊김": "렉",
+    "끊겨요": "렉",
+    "버벅거림": "렉",
+    "현질": "과금",
+    "과금유도": "과금",
+    "pay": "과금",
+    "매치": "매칭",
+    "매칭안됨": "매칭",
+    "접속불가": "접속",
+    "로그인": "접속",
+    "로그인안됨": "접속",
+    "서버렉": "서버",
+}
+
 
 def disable_broken_proxy_settings() -> None:
     for key in PROXY_ENV_KEYS:
@@ -66,7 +86,8 @@ def tokenize_review_text(text: str, use_cleaning: bool = True) -> List[str]:
     tokens = simple_tokenize(base_text)
     if not use_cleaning:
         return tokens
-    return [token for token in tokens if token not in ANALYSIS_STOPWORDS and len(token) >= 2]
+    normalized_tokens = [KEYWORD_SYNONYM_MAP.get(token, token) for token in tokens]
+    return [token for token in normalized_tokens if token not in ANALYSIS_STOPWORDS and len(token) >= 2]
 
 
 def score_to_label(value: float) -> Optional[str]:

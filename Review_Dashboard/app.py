@@ -10,15 +10,21 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from review_core.analysis import (
     build_daily_trend,
+    build_keyword_frequency_over_time,
+    build_keyword_score_distribution,
+    build_keyword_sentiment_distribution,
     build_period_keyword_table,
     build_score_distribution,
     build_sentiment_distribution,
+    get_keyword_review_examples,
+    keyword_counts_from_reviews,
     make_wordcloud,
     normalize_analysis_dataframe,
     top_keywords_from_reviews,
 )
 from review_core.compare import (
     build_compare_summary,
+    compare_common_and_distinct_keywords,
     compare_keywords,
     compare_scores,
     compare_sentiment,
@@ -501,20 +507,123 @@ def filter_dataframe_by_date_range(dataframe: pd.DataFrame, start_date, end_date
     return filtered[(filtered["date"] >= start_ts) & (filtered["date"] <= end_ts)]
 
 
+def render_keyword_analysis_section(dataframe: pd.DataFrame, section_key: str, use_cleaning: bool = True) -> None:
+    df_work = normalize_analysis_dataframe(dataframe)
+    if df_work is None or df_work.empty:
+        st.info("리뷰 분석에 사용할 데이터가 아직 없어요.")
+        return
+
+    keyword_candidates = [word for word, _ in top_keywords_from_reviews(df_work["review"], top_n=15, use_cleaning=use_cleaning)]
+    if not keyword_candidates:
+        st.info("키워드를 추출하기에 충분한 리뷰 내용이 아직 없어요.")
+        return
+
+    st.markdown("### 리뷰 분석")
+    selected_keywords = st.multiselect(
+        "기간별 등장 빈도를 볼 키워드",
+        options=keyword_candidates,
+        default=keyword_candidates[: min(3, len(keyword_candidates))],
+        key=f"{section_key}_trend_keywords",
+    )
+    granularity = st.selectbox(
+        "빈도 분석 단위",
+        ["Day", "Week", "Month"],
+        index=1,
+        key=f"{section_key}_trend_granularity",
+    )
+
+    if selected_keywords:
+        frequency_df = build_keyword_frequency_over_time(df_work, selected_keywords, granularity=granularity, use_cleaning=use_cleaning)
+        if not frequency_df.empty:
+            pivot_df = frequency_df.pivot(index="period", columns="keyword", values="count").fillna(0)
+            st.line_chart(pivot_df, use_container_width=True)
+            st.dataframe(frequency_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("선택한 조건에서 기간별 키워드 빈도를 계산할 수 없어요.")
+
+    selected_keyword = st.selectbox(
+        "드릴다운할 키워드",
+        options=keyword_candidates,
+        key=f"{section_key}_selected_keyword",
+    )
+    if not selected_keyword:
+        return
+
+    left_col, right_col = st.columns(2)
+    with left_col:
+        st.markdown("#### 선택 키워드 감성 분포")
+        sentiment_df = build_keyword_sentiment_distribution(df_work, selected_keyword, use_cleaning=use_cleaning)
+        st.bar_chart(sentiment_df.set_index("sentiment")["count"], use_container_width=True)
+        st.dataframe(sentiment_df, use_container_width=True, hide_index=True)
+    with right_col:
+        st.markdown("#### 선택 키워드 평점 분포")
+        score_df = build_keyword_score_distribution(df_work, selected_keyword, use_cleaning=use_cleaning)
+        st.bar_chart(score_df.set_index("score")["count"], use_container_width=True)
+        st.dataframe(score_df, use_container_width=True, hide_index=True)
+
+    st.markdown("#### 선택 키워드 리뷰 예시")
+    examples_df = get_keyword_review_examples(df_work, selected_keyword, use_cleaning=use_cleaning, limit=5)
+    if examples_df.empty:
+        st.info("해당 키워드가 포함된 리뷰 예시를 찾지 못했어요.")
+    else:
+        st.dataframe(examples_df, use_container_width=True, hide_index=True)
+
+
+def render_keyword_compare_section(df1: pd.DataFrame, df2: pd.DataFrame, label1: str, label2: str, use_cleaning: bool = True) -> None:
+    normalized_df1 = normalize_analysis_dataframe(df1)
+    normalized_df2 = normalize_analysis_dataframe(df2)
+    if normalized_df1 is None or normalized_df2 is None or normalized_df1.empty or normalized_df2.empty:
+        st.info("키워드 비교를 하려면 두 데이터셋이 모두 필요해요.")
+        return
+
+    st.markdown("### 리뷰 분석")
+    common_df, distinct_df = compare_common_and_distinct_keywords(
+        normalized_df1,
+        normalized_df2,
+        label1,
+        label2,
+        top_n=10,
+        use_cleaning=use_cleaning,
+    )
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("#### 게임 간 공통 키워드")
+        if common_df.empty:
+            st.info("두 게임에서 함께 두드러지는 공통 키워드가 아직 충분하지 않아요.")
+        else:
+            st.dataframe(common_df, use_container_width=True, hide_index=True)
+    with c2:
+        st.markdown("#### 게임 간 차별 키워드")
+        if distinct_df.empty:
+            st.info("두 게임을 구분해주는 차별 키워드가 아직 충분하지 않아요.")
+        else:
+            st.dataframe(distinct_df, use_container_width=True, hide_index=True)
+
+
 def render_single_analysis(dataframe: pd.DataFrame, label: str, granularity_key: str) -> None:
     cleaning_key = "use_cleaning_file_1" if granularity_key == "analysis_file_1_granularity" else "use_cleaning_file_2"
     df_work = normalize_analysis_dataframe(dataframe)
     if df_work is None or df_work.empty:
         st.info(f"{label} 데이터가 비어 있어 분석을 진행할 수 없어요.")
         return
-    use_cleaning = st.checkbox("클렌징 적용", key=cleaning_key, help="감탄사, 강조어, 반복 표현처럼 정보량이 낮은 단어를 줄여서 키워드와 워드클라우드를 더 또렷하게 보여줍니다.")
+
+    use_cleaning = st.checkbox(
+        "클렌징 적용",
+        key=cleaning_key,
+        help="강조 표현과 반복 표현을 줄여 더 선명한 키워드를 확인할 수 있어요.",
+    )
+
     st.markdown(f"#### {label} 개요")
     render_kpi_cards(df_work)
+
     st.markdown("#### 기간별 리뷰 수 추이")
-    if df_work["date"].notna().any():
-        st.line_chart(build_daily_trend(df_work)["리뷰수"], use_container_width=True)
+    daily_trend = build_daily_trend(df_work)
+    if not daily_trend.empty:
+        st.line_chart(daily_trend["review_count"], use_container_width=True)
     else:
-        st.info("작성일 정보를 확인할 수 없어 기간별 추이 차트는 잠시 건너뛸게요.")
+        st.info("작성일 정보가 충분하지 않아 기간별 리뷰 수 추이를 보여드리기 어려워요.")
+
     c1, c2 = st.columns([1, 1.2])
     with c1:
         st.markdown("#### 평점 분포")
@@ -526,15 +635,21 @@ def render_single_analysis(dataframe: pd.DataFrame, label: str, granularity_key:
         st.markdown("#### 핵심 키워드")
         keywords = top_keywords_from_reviews(df_work["review"], top_n=20, use_cleaning=use_cleaning)
         if keywords:
-            st.dataframe(pd.DataFrame(keywords, columns=["단어", "빈도"]), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(keywords, columns=["키워드", "빈도"]), use_container_width=True, hide_index=True)
         else:
-            st.info("키워드를 추출할 텍스트가 아직 충분하지 않아요.")
+            st.info("키워드를 추출하기에 충분한 리뷰 내용이 아직 없어요.")
+
     st.markdown("#### 기간별 키워드")
     if df_work["date"].notna().any():
-        granularity = st.selectbox("기간 단위", ["일(Day)", "주(Week)", "월(Month)"], index=["일(Day)", "주(Week)", "월(Month)"].index(st.session_state[granularity_key]), key=granularity_key)
+        granularity_options = ["Day", "Week", "Month"]
+        current_granularity = st.session_state.get(granularity_key, "Week")
+        if current_granularity not in granularity_options:
+            current_granularity = "Week"
+        granularity = st.selectbox("기간 단위", granularity_options, index=granularity_options.index(current_granularity), key=granularity_key)
         st.dataframe(build_period_keyword_table(df_work, granularity, use_cleaning=use_cleaning), use_container_width=True, hide_index=True)
     else:
-        st.info("작성일과 리뷰 내용이 함께 있어야 기간별 키워드를 보여드릴 수 있어요.")
+        st.info("작성일 정보가 부족해 기간별 키워드를 계산할 수 없어요.")
+
     st.markdown("#### 긍정/부정 워드클라우드")
     w1, w2 = st.columns(2)
     with w1:
@@ -551,11 +666,12 @@ def render_single_analysis(dataframe: pd.DataFrame, label: str, granularity_key:
             st.pyplot(fig, clear_figure=True, use_container_width=True)
         else:
             st.info("부정 리뷰 텍스트가 충분하지 않아요.")
-    st.markdown("#### 감성 분포와 인사이트")
+
+    st.markdown("#### 감성 분포와 요약")
     s1, s2 = st.columns([1, 1.2])
     with s1:
         sentiment_df = build_sentiment_distribution(df_work)
-        st.bar_chart(sentiment_df.set_index("감성")["개수"], use_container_width=True)
+        st.bar_chart(sentiment_df.set_index("sentiment")["count"], use_container_width=True)
     with s2:
         top_words = [word for word, _ in top_keywords_from_reviews(df_work["review"], top_n=5, use_cleaning=use_cleaning)]
         lines = [f"전체 리뷰 수: {len(df_work):,}건"]
@@ -568,9 +684,14 @@ def render_single_analysis(dataframe: pd.DataFrame, label: str, granularity_key:
             lines.append(f"핵심 키워드: {', '.join(top_words[:3])}")
         st.markdown("<div class='insight-box'>" + "<br/>".join([f"• {line}" for line in lines]) + "</div>", unsafe_allow_html=True)
 
+    render_keyword_analysis_section(df_work, granularity_key, use_cleaning=use_cleaning)
 
 def render_compare_analysis(df1: pd.DataFrame, df2: pd.DataFrame, label1: str, label2: str) -> None:
-    use_cleaning = st.checkbox("비교 분석에 클렌징 적용", key="use_cleaning_compare", help="핵심 키워드와 워드 기준 비교에서 의미가 약한 표현을 줄입니다.")
+    use_cleaning = st.checkbox(
+        "비교 분석에 클렌징 적용",
+        key="use_cleaning_compare",
+        help="비교 분석에서도 의미가 약한 표현을 줄여 핵심 키워드를 더 분명하게 보여줍니다.",
+    )
     normalized_df1 = normalize_analysis_dataframe(df1)
     normalized_df2 = normalize_analysis_dataframe(df2)
     compare_df1 = normalized_df1
@@ -592,31 +713,43 @@ def render_compare_analysis(df1: pd.DataFrame, df2: pd.DataFrame, label1: str, l
         with range_col2:
             end_date = st.date_input("비교 종료일", value=max_date, min_value=min_date, max_value=max_date, key="compare_end_date")
         if start_date > end_date:
-            st.warning("비교 시작일이 종료일보다 늦어요. 날짜를 다시 확인해 주세요.")
+            st.warning("비교 시작일이 종료일보다 늦습니다. 날짜를 다시 확인해 주세요.")
             return
         compare_df1 = filter_dataframe_by_date_range(normalized_df1, start_date, end_date)
         compare_df2 = filter_dataframe_by_date_range(normalized_df2, start_date, end_date)
         if compare_df1.empty or compare_df2.empty:
-            st.info("선택한 기간에 비교할 리뷰가 충분하지 않아요. 기간 범위를 조금 넓혀 주세요.")
+            st.info("선택한 기간에는 비교할 리뷰가 충분하지 않아요. 기간 범위를 조금 넓혀 주세요.")
             return
 
     st.markdown("#### 평점 비교")
     st.dataframe(compare_scores(compare_df1, compare_df2, label1, label2), use_container_width=True, hide_index=True)
+
     st.markdown("#### 핵심 키워드 비교")
     st.dataframe(compare_keywords(compare_df1, compare_df2, label1, label2, top_n=10, use_cleaning=use_cleaning), use_container_width=True, hide_index=True)
+
     st.markdown("#### 리뷰 긍정도 비교")
     sentiment_df = compare_sentiment(compare_df1, compare_df2, label1, label2)
-    st.bar_chart(sentiment_df.set_index("파일"), use_container_width=True)
+    st.bar_chart(sentiment_df.set_index("file"), use_container_width=True)
     st.dataframe(sentiment_df, use_container_width=True, hide_index=True)
+
     st.markdown("#### 동향 차이")
-    granularity = st.selectbox("비교 기간 단위", ["일(Day)", "주(Week)", "월(Month)"], index=["일(Day)", "주(Week)", "월(Month)"].index(st.session_state.analysis_compare_granularity), key="analysis_compare_granularity")
+    granularity_options = ["Day", "Week", "Month"]
+    current_granularity = st.session_state.get("analysis_compare_granularity", "Week")
+    if current_granularity not in granularity_options:
+        current_granularity = "Week"
+    granularity = st.selectbox("비교 기간 단위", granularity_options, index=granularity_options.index(current_granularity), key="analysis_compare_granularity")
     trend_df = compare_trends(compare_df1, compare_df2, label1, label2, granularity)
-    st.line_chart(trend_df.set_index("period"), use_container_width=True)
-    st.dataframe(trend_df, use_container_width=True, hide_index=True)
+    if not trend_df.empty:
+        st.line_chart(trend_df.set_index("period"), use_container_width=True)
+        st.dataframe(trend_df, use_container_width=True, hide_index=True)
+    else:
+        st.info("동향 차이를 계산하기에 충분한 날짜 정보가 없어요.")
+
     st.markdown("#### 비교 요약")
     summary_lines = build_compare_summary(compare_df1, compare_df2, label1, label2, use_cleaning=use_cleaning)
     st.markdown("<div class='insight-box'>" + "<br/>".join([f"• {line}" for line in summary_lines]) + "</div>", unsafe_allow_html=True)
 
+    render_keyword_compare_section(compare_df1, compare_df2, label1, label2, use_cleaning=use_cleaning)
 
 def render_analysis_source_status(slot_id: int) -> str:
     if st.session_state.get(get_slot_key("uploaded_name", slot_id)):
